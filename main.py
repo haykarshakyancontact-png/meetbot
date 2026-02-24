@@ -1,46 +1,42 @@
 import os
 from flask import Flask, request
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, Bot
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Dispatcher
 
-# --- Bot Token & App URL ---
+# Environment variables
 TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")  # Railway deployment URL, e.g., https://your-bot.up.railway.app
-PORT = int(os.environ.get("PORT", "8443"))
+APP_URL = os.getenv("APP_URL")  # Your Railway URL, e.g., https://your-project.up.railway.app
+PORT = int(os.getenv("PORT", 5000))  # Use Railway PORT or default to 5000
 
 if not TOKEN:
     raise ValueError("BOT_TOKEN environment variable not set")
 if not APP_URL:
     raise ValueError("APP_URL environment variable not set")
 
-# --- Telegram Bot Application ---
-app_bot = ApplicationBuilder().token(TOKEN).build()
+# Telegram bot setup
+bot = Bot(TOKEN)
+app = Flask(__name__)
+dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
 
-# Start command
+# Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 MeetContractBot is running on Railway!")
 
-app_bot.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("start", start))
 
-# --- Flask Web Server for Webhook ---
-flask_app = Flask(__name__)
-
-@flask_app.route(f"/webhook/{TOKEN}", methods=["POST"])
+# Webhook endpoint
+@app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, app_bot.bot)
-    app_bot.process_update(update)
-    return "OK"
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
 
-# --- Set Webhook and Run Flask ---
-async def set_webhook():
-    # Remove existing webhook (prevents conflicts)
-    await app_bot.bot.delete_webhook()
-    # Set new webhook
-    await app_bot.bot.set_webhook(f"{APP_URL}/webhook/{TOKEN}")
+# Set webhook with Telegram
+@app.before_first_request
+def setup_webhook():
+    bot.delete_webhook()
+    bot.set_webhook(url=f"{APP_URL}/{TOKEN}")
 
+# Run Flask
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(set_webhook())
-    # Run Flask app to receive updates
-    flask_app.run(host="0.0.0.0", port=PORT)
+    app.run(host="0.0.0.0", port=PORT)
