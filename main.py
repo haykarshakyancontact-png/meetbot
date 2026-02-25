@@ -1,43 +1,39 @@
 import os
-import asyncio
 from flask import Flask, request
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, Bot
+from telegram.ext import Dispatcher, CommandHandler
 
 TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")
-PORT = int(os.getenv("PORT", 5000))
+APP_URL = os.getenv("APP_URL")  # Railway URL
+PORT = int(os.environ.get("PORT", 5000))
 
-if not TOKEN:
-    raise ValueError("BOT_TOKEN not set")
-if not APP_URL:
-    raise ValueError("APP_URL not set")
+if not TOKEN or not APP_URL:
+    raise ValueError("BOT_TOKEN or APP_URL environment variable not set")
 
-application = ApplicationBuilder().token(TOKEN).build()
+bot = Bot(token=TOKEN)
+dp = Dispatcher(bot=bot, update_queue=None, workers=0)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 MeetContractBot is running on Railway!")
+app = Flask(__name__)
 
-application.add_handler(CommandHandler("start", start))
+# Example /start command
+def start(update: Update, context):
+    update.message.reply_text("👋 MeetContractBot is running on Railway!")
 
-flask_app = Flask(__name__)
+dp.add_handler(CommandHandler("start", start))
 
-@flask_app.route(f"/{TOKEN}", methods=["POST"])
-async def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return "ok"
+# Webhook route for Telegram
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dp.process_update(update)
+    return "OK"
 
-@flask_app.route("/")
-def home():
-    return "Bot is alive"
-
-async def setup():
-    await application.initialize()
-    await application.bot.delete_webhook()
-    await application.bot.set_webhook(f"{APP_URL}/{TOKEN}")
+# Health check route
+@app.route("/")
+def index():
+    return "Bot is alive!"
 
 if __name__ == "__main__":
-    asyncio.run(setup())
-    flask_app.run(host="0.0.0.0", port=PORT)
+    # Set webhook automatically on start
+    bot.set_webhook(f"{APP_URL}/{TOKEN}")
+    app.run(host="0.0.0.0", port=PORT)
